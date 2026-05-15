@@ -1,0 +1,7 @@
+same-network-fast-sharing.exe
+*.exe~
+received/
+transfer-data/
+*.log
+.DS_Store
+Thumbs.db
