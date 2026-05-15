@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Same Network Fast Sharing</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>Same Network Fast Sharing</h1>
+            <p>Mesh-style browser transfer with sender verification codes</p>
+          </div>
+          <div class="status-pill" id="networkLabel">Connecting</div>
+        </header>
+
+        <section class="identity">
+          <label>
+            This device
+            <input id="deviceName" type="text" maxlength="40" />
+          </label>
+          <button id="saveDevice">Save name</button>
+        </section>
+
+        <section class="mesh-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Online Devices</h2>
+              <span id="deviceCount">0 online</span>
+            </div>
+            <div id="devices" class="devices"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Incoming</h2>
+              <span id="inboxCount">0 items</span>
+            </div>
+            <div id="inbox" class="inbox"></div>
+          </section>
+        </section>
+
+        <section class="dropzone" id="dropzone">
+          <input id="fileInput" type="file" multiple />
+          <input id="folderInput" type="file" multiple webkitdirectory directory />
+          <div class="drop-content">
+            <div class="drop-icon">+</div>
+            <div>
+              <h2>Select files or folders</h2>
+              <p>Choose a target device first, then send with a one-time code.</p>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="chooseFiles">Files</button>
+            <button id="chooseFolder">Folder</button>
+          </div>
+        </section>
+
+        <section class="controls">
+          <label>
+            Chunk size
+            <select id="chunkSize">
+              <option value="4194304">4 MB</option>
+              <option value="8388608" selected>8 MB</option>
+              <option value="16777216">16 MB</option>
+              <option value="33554432">32 MB</option>
+            </select>
+          </label>
+          <label>
+            Parallel chunks
+            <select id="parallelism">
+              <option value="2">2</option>
+              <option value="4" selected>4</option>
+              <option value="6">6</option>
+              <option value="8">8</option>
+            </select>
+          </label>
+          <label>
+            Retry limit
+            <select id="retryLimit">
+              <option value="3">3</option>
+              <option value="5" selected>5</option>
+              <option value="8">8</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="summary">
+          <div>
+            <span>Total</span>
+            <strong id="totalSize">0 B</strong>
+          </div>
+          <div>
+            <span>Progress</span>
+            <strong id="overallPercent">0%</strong>
+          </div>
+          <div>
+            <span>Speed</span>
+            <strong id="speed">0 B/s</strong>
+          </div>
+          <div>
+            <span>State</span>
+            <strong id="state">Idle</strong>
+          </div>
+        </section>
+
+        <div class="bar">
+          <div id="overallBar"></div>
+        </div>
+
+        <section class="transfer-actions">
+          <button id="startBtn" disabled>Send to selected device</button>
+          <button id="pauseBtn" disabled>Pause</button>
+          <button id="resumeBtn" disabled>Resume</button>
+          <button id="clearBtn" disabled>Clear</button>
+        </section>
+
+        <section class="code-panel" id="codePanel" hidden>
+          <span>Verification code shown on sender</span>
+          <strong id="verificationCode">000000</strong>
+        </section>
+
+        <section class="queue" id="queue"></section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
