@@ -1,99 +1,233 @@
-# Same Network Fast Sharing
+# SetuLink Windows Installer
 
-A local-network mesh-style Web UI for sending large files and folders between browser devices with chunked, retryable uploads and sender verification codes.
-
-## What It Does
-
-- Lets every browser device choose any other online browser device.
-- Shows a one-time verification code on the sender screen.
-- Requires the receiving device to enter that code before upload starts.
-- Sends files and selected folders from a browser.
-- Splits every file into chunks.
-- Hashes each chunk with SHA-256 before upload.
-- Retries failed chunks instead of restarting the whole file.
-- Preserves folder paths.
-- Writes incoming files as `.partial`, then renames after assembly.
-- Stores transfer manifests and chunks in `transfer-data`.
-- Saves completed files into `received/<target-device>/<transfer-id>`.
-- Shows completed incoming transfers as download links in the target device inbox.
-- Offers receiver-side `Download with progress` plus a normal `Browser download` link.
-- Runs cleanup on startup and every 12 hours.
-
-## Run
-
-```powershell
-go run .
-```
-
-Open the app on the hub device:
+This folder builds the production SetuLink Windows installer. The expected final output is:
 
 ```text
-http://localhost:8080
+installer\SetuLinkSetup\dist\SetuLinkSetup.exe
 ```
 
-From every phone, tablet, or computer on the same Wi-Fi/LAN, open the hub's LAN address:
+The installer deploys the agent as a Windows service, writes runtime config under ProgramData, validates service startup, and records diagnostics in installer and agent logs.
+
+## Prerequisites
+
+- Windows build machine
+- PowerShell 5.1 or newer
+- Go installed and available on `PATH`
+- Inno Setup 6 installed, or pass `-InnoSetupCompiler`
+- Windows ffmpeg runtime staged under `assets\ffmpeg\`, including `ffmpeg.exe`
+  and any DLLs required by the chosen build
+
+## Build
+
+From this folder:
+
+```powershell
+.\build.ps1 -Clean
+```
+
+The default backend API URL is:
 
 ```text
-http://HUB_IP:8080
+https://netraapi.shivomsangha.com
 ```
 
-The server prints available LAN URLs when it starts.
-
-## Mesh Flow
-
-1. Run the hub on one computer.
-2. Open the hub URL on every device.
-3. Give each device a clear name.
-4. On the sender, select the target device from `Online Devices`.
-5. Select files or a folder.
-6. Click `Send to selected device`.
-7. The sender screen shows a 6-digit code.
-8. The receiver enters that code in `Incoming`.
-9. Upload starts only after the code matches.
-10. The receiver downloads completed files from its inbox.
-
-## Windows Firewall
-
-If another device cannot open the page, allow inbound traffic for port `8080` or allow the Go app through Windows Firewall.
-
-## Recommended Transfer Settings
-
-- Chunk size: `8 MB` for normal Wi-Fi.
-- Chunk size: `16 MB` or `32 MB` for wired LAN.
-- Parallel chunks: `4` to start.
-- Retry limit: `5`.
-
-## Cleanup
-
-The hub cleanup job runs on startup and every 12 hours.
-
-- Completed transfers are kept for 7 days.
-- Incomplete transfer chunks are kept for 48 hours.
-- Runtime folders are ignored by git:
-  - `received`
-  - `transfer-data`
-
-## Receiver Downloads
-
-The inbox shows two download options after a transfer completes:
-
-- `Download with progress`: shows progress inside the Web UI, but the browser keeps the file in memory before saving.
-- `Browser download`: lets the browser or operating system handle the download, which is better for very large files and background-capable browsers.
-
-## Build A Single Executable
+To override the baked backend URL for another environment:
 
 ```powershell
-go build -o same-network-fast-sharing.exe .
+.\build.ps1 -Clean -DefaultBackendURL "https://netraapi.shivomsangha.com" -Version "0.1.0"
 ```
 
-Run:
+`build.ps1` is the single clean build entrypoint. It always:
+
+- rebuilds `setulink-agent.exe` from the nearest repository root containing `agent\go.mod`
+- rebuilds `SetuLinkInstallerBootstrap.exe` from `src`
+- copies fresh binaries into `assets`
+- verifies bundled ffmpeg exists under `assets\ffmpeg\ffmpeg.exe`
+- verifies `build` and `assets` binary SHA256 values match
+- prints the full path, SHA256, and file size for each packaged asset:
+  `assets\setulink-agent.exe`, `assets\SetuLinkInstallerBootstrap.exe`,
+  `assets\setulink-updater.exe`, and `assets\ffmpeg\ffmpeg.exe`
+- compiles `dist\SetuLinkSetup.exe` with Inno Setup
+
+It does not silently reuse stale assets. If Go, Inno Setup, or bundled ffmpeg is missing, the build fails.
+
+### Packaging-only build
+
+If the Windows machine only has this `SetuLinkSetup` folder and not the full repo, packaging-only mode is supported:
 
 ```powershell
-.\same-network-fast-sharing.exe
+.\build.ps1 -Clean -SkipAgentBuild -SkipBootstrapBuild -SkipUpdaterBuild
 ```
 
-Keep the `static` folder beside the executable.
+This mode does not rebuild source. It requires these files to already exist first:
 
-## Notes
+```text
+assets\setulink-agent.exe
+assets\SetuLinkInstallerBootstrap.exe
+assets\setulink-updater.exe
+assets\ffmpeg\ffmpeg.exe
+```
 
-This is hub-assisted mesh. iPhone and Android do not need an installed app, but their browser page must stay open while receiving and downloading. For true background receiving on phones, a native mobile app is required because mobile browsers restrict background file access.
+The build output says `packaging-only`, stages those existing assets into `build\`, and still prints full path, SHA256, and size for each packaged asset. Treat the printed asset report as the proof of which binaries were packaged.
+
+## Install
+
+Run the final installer as administrator:
+
+```powershell
+.\dist\SetuLinkSetup.exe
+```
+
+To override the backend URL at install time:
+
+```powershell
+.\dist\SetuLinkSetup.exe /BACKENDURL="https://netraapi.shivomsangha.com"
+```
+
+The backend URL must point to the API host. The installer rejects obvious frontend-host misuse such as:
+
+```text
+https://netralink.shivomsangha.com
+```
+
+The bootstrap also performs a lightweight health probe against:
+
+```text
+<backend-url>/health
+```
+
+If the probe fails, installation stops before writing a broken config.
+
+## Installed Layout
+
+```text
+C:\Program Files\SetuLink\
+  setulink-agent.exe
+  setulink-updater.exe
+  ffmpeg\
+    ffmpeg.exe
+    <required ffmpeg DLLs, if any>
+
+C:\ProgramData\SetuLink\
+  config\
+    agent.json
+  logs\
+    installer.log
+    agent.log
+  files\
+  data\
+  temp\
+  device.json
+```
+
+## Fresh Install Behavior
+
+On a fresh machine, the installer:
+
+- creates the Program Files and ProgramData directories
+- writes `C:\ProgramData\SetuLink\config\agent.json`
+- copies bundled ffmpeg into `C:\Program Files\SetuLink\ffmpeg\`
+- installs or updates the `SetuLinkAgent` Windows service
+- configures service recovery to restart after the first, second, and third failure, resetting the failure count after one day
+- starts the service
+- validates that the service is installed, the service is running, service-mode startup reaches registration or heartbeat, and bundled ffmpeg exists at `C:\Program Files\SetuLink\ffmpeg\ffmpeg.exe`
+
+The generated config contains both `backendUrl` and `serverUrl` for compatibility with the current agent. The agent creates its own persistent `device.json`.
+
+## Reinstall / Repair Behavior
+
+Rerunning the installer is a repair/update pass:
+
+- stops the existing service when needed
+- stops stray `setulink-agent.exe` processes
+- replaces the installed binary with the freshly bundled binary
+- copies the bundled ffmpeg runtime into `C:\Program Files\SetuLink\ffmpeg\`
+- preserves a valid existing backend config unless `/BACKENDURL=...` is supplied
+- preserves valid `device.json`
+- lets the agent back up and regenerate malformed or invalid `device.json`
+- reconfigures service recovery and restarts the service
+
+## Logs
+
+Installer log:
+
+```text
+C:\ProgramData\SetuLink\logs\installer.log
+```
+
+Agent log:
+
+```text
+C:\ProgramData\SetuLink\logs\agent.log
+```
+
+Automatic post-install diagnostics:
+
+```text
+C:\ProgramData\SetuLink\diagnostics\install-log-bundle-YYYYMMDD-HHMMSS.zip
+C:\ProgramData\SetuLink\diagnostics\latest-install-diagnostics.json
+```
+
+The installer writes the diagnostics bundle automatically on both success and failure. The bundle includes installer and agent logs, log tails, service status, summary metadata, and a redacted copy of `agent.json`. It does not send logs outside the machine.
+
+Manual log collection after install:
+
+```powershell
+cd installer\SetuLinkSetup
+.\collect-install-logs.ps1
+```
+
+Manual bundles are written to:
+
+```text
+C:\ProgramData\SetuLink\diagnostics\manual-log-bundle-YYYYMMDD-HHMMSS.zip
+C:\ProgramData\SetuLink\diagnostics\latest-manual-log-diagnostics.json
+```
+
+The installer log includes selected backend URL source, backend health probe result, config path written, binary copy details, ffmpeg source path, ffmpeg destination path, ffmpeg source existence, number of ffmpeg files copied, post-copy `ffmpeg.exe` verification, service install/config/start details, validation result, and recent agent log text when service startup fails.
+
+The Windows service wrapper writes fatal startup errors and panics to `agent.log`. Early agent startup also writes:
+
+- `binary-identity`, with executable path, config version, binary size, and binary modified time
+- `remote-desktop-capability`, with capability state, ffmpeg path, ffmpeg source (`bundled`, `system`, `missing`, or `unsupported`), and readiness reason
+
+Example structured log shape:
+
+```json
+{"component":"runtime","action":"remote-desktop-capability","message":"remote desktop capability summary","metadata":{"remoteDesktopCapabilityState":"ready","ffmpegPath":"C:\\Program Files\\SetuLink\\ffmpeg\\ffmpeg.exe","ffmpegSource":"bundled","reason":"Windows JPEG capture and websocket relay runtime ready"}}
+```
+
+## Fresh Windows Test Flow
+
+1. Restore the clean Windows snapshot.
+2. Copy one fresh `SetuLinkSetup` folder to the machine.
+3. Confirm `assets\ffmpeg\ffmpeg.exe` is present before building.
+4. Build with `.\build.ps1 -Clean`, or use packaging-only mode with all skip flags when this folder already contains all required packaged assets.
+5. Run `.\dist\SetuLinkSetup.exe` as Administrator.
+6. Verify `C:\Program Files\SetuLink\ffmpeg\ffmpeg.exe`, service state, agent startup capability logging, and that the remote portal reflects readiness honestly.
+
+## Verification
+
+Fresh install:
+
+```powershell
+Test-Path "C:\Program Files\SetuLink\ffmpeg\ffmpeg.exe"
+& "C:\Program Files\SetuLink\ffmpeg\ffmpeg.exe" -version
+sc.exe query SetuLinkAgent
+Get-Content "C:\ProgramData\SetuLink\config\agent.json"
+Get-Content "C:\ProgramData\SetuLink\logs\installer.log" -Tail 120
+Get-Content "C:\ProgramData\SetuLink\logs\agent.log" -Tail 200
+Select-String -Path "C:\ProgramData\SetuLink\logs\agent.log" -Pattern "ffmpeg|remote-desktop|capability|desktop"
+Invoke-RestMethod "https://netraapi.shivomsangha.com/health"
+```
+
+Reinstall:
+
+```powershell
+.\dist\SetuLinkSetup.exe /BACKENDURL="https://netraapi.shivomsangha.com"
+Get-Content "C:\ProgramData\SetuLink\logs\installer.log" -Tail 160
+Get-Content "C:\ProgramData\SetuLink\logs\agent.log" -Tail 160
+sc.exe query SetuLinkAgent
+```
+
+After either install path, the device should appear online in the SetuLink dashboard.
